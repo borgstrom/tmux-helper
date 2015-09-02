@@ -1,10 +1,15 @@
 #!/usr/bin/python
+"""
+tmux-helper displays a menu of existing sessions and allows for creation of new ones
+
+When combined with mosh and invokved upon login (i.e. mosh my-box python tmux-helper.py) it makes
+a handy system that allows for fluid work on remote boxes.
+"""
 
 from collections import namedtuple
 import os
 import re
 import subprocess
-import urwid
 
 TmuxSession = namedtuple('TmuxSession', ('session_id', 'session_state'))
 
