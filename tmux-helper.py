@@ -9,8 +9,6 @@ a handy system that allows for fluid work on remote boxes.
 import os
 import subprocess
 
-from collections import namedtuple
-
 
 class TmuxSession(object):
   """
