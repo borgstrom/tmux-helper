@@ -1,79 +1,111 @@
 #!/usr/bin/python
+"""
+tmux-helper displays a menu of existing sessions and allows for creation of new ones
 
-from collections import namedtuple
+When combined with mosh and invokved upon login (i.e. mosh my-box python tmux-helper.py) it makes
+a handy system that allows for fluid work on remote boxes.
+"""
+
 import os
-import re
 import subprocess
-import urwid
 
-TmuxSession = namedtuple('TmuxSession', ('session_id', 'session_state'))
 
-class TmuxStatus(object):
-
-  def __init__(self):
-    self.sessions = []
-    self.get_sessions()
-
-  def get_sessions(self):
-    cmd = ['tmux', 'ls']
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    self.tmux_out, self.tmux_err = proc.communicate()
-    self.parse_session_data()
-
-  def parse_session_data(self):
-    for line in self.tmux_out.split('\n'):
-      if not line:
-        continue
-      match = re.match('(.*): \d* windows \(.*\) \[.*\](.*)', line)
-      if not match:
-        raise Exception('Unable to match tmux output: {0}'.format(line))
-      session_id = match.group(1)
-      if 'attached' in match.group(2):
-        session_state = 'attached'
-      else:
-        session_state = 'detached'
-      session_data = TmuxSession(session_id, session_state)
-      self.sessions.append(session_data)
-
-class SessionSelection(object):
-  
-  def __init__(self, session_data):
-    self.session_data = session_data
-    self.choices = {}
-    self.build_choices()
-    self.render_options()
-    self.read_choice()
-    self.launch()
-
-  def build_choices(self):
-    sessions = []
-    [sessions.append(s) for s in self.session_data if s.session_state == 'detached']
-    [sessions.append(s) for s in self.session_data if s.session_state == 'attached']
-
-    i = 0
-    for s in sessions:
-      i += 1
-      self.choices[str(i)] = s
-
-    self.choices['n'] = TmuxSession(session_id='new session',  session_state='new')
+class TmuxSession(object):
+  """
+  Represents an existing tmux session
+  """
+  def __init__(self, id, name, description):
+    self.id = id
+    self.name = name
+    self.description = description
 
   def launch(self):
-    session_data = self.choices[self.session_id]
-    if session_data.session_state == 'new':
-      session_name = str(raw_input('Session name?'))
-      cmd = ['tmux', 'new-session', '-s', session_name]
-    else:
-      cmd = ['tmux', 'attach', '-t', session_data.session_id]
-    os.execlp('tmux', *cmd)   
- 
-  def render_options(self):
-   # print(chr(27) + "[2J")
-    for s_id, s_data in self.choices.iteritems():
-      print '{0}) {1} [{2}]'.format(s_id, s_data.session_id, s_data.session_state)
+    """
+    Launch this session
+    """
+    cmd = ['tmux', 'attach', '-d', '-t', self.name]
+    os.execlp('tmux', *cmd)
+
+  def __str__(self):
+    return '{id}) {description}'.format(
+      id=self.id,
+      description=self.description
+    )
+
+
+class NewTmuxSession(TmuxSession):
+  """
+  Special session class for new sessions
+  """
+  def __init__(self):
+    self.id = 'n'
+    self.name = 'new'
+    self.description = 'Start a new session'
+
+  def launch(self):
+    """
+    Launch a new session
+    """
+    session_name = str(raw_input('New session name: '))
+    cmd = ['tmux', 'new', '-s', session_name]
+    os.execlp('tmux', *cmd)
+
+
+class TmuxHelper(object):
+  """
+  TmuxHelper implements the main logic for listing, creating and selecting sessions
+  """
+  def __init__(self):
+    self.session_ids = []
+    self.sessions = {}
+
+  def run(self):
+    """
+    Run the helper
+    """
+    self.get_sessions()
+    self.session_ids.append('n')
+    self.sessions['n'] = NewTmuxSession()
+
+    for session_id in self.session_ids:
+      print str(self.sessions[session_id])
+
+    self.read_choice()
+
+  def get_sessions(self):
+    """
+    Fetches the current tmux sessions
+    """
+    cmd = ['tmux', 'ls']
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    tmux_out, _ = proc.communicate()
+
+    session_id = 0
+    for line in tmux_out.split('\n'):
+      if not line:
+        continue
+
+      session_name, _ = line.split(':', 1)
+      session_id += 1
+      self.session_ids.append(str(session_id))
+      self.sessions[str(session_id)] = TmuxSession(session_id, session_name, line)
 
   def read_choice(self):
-    self.session_id = str(raw_input('Make a selection:'))
+    """
+    Read the users choice
+    """
+    while True:
+      selection = str(raw_input('Make a selection: '))
+      if selection in self.sessions:
+        return self.sessions[selection].launch()
+
+      print "Invalid selection! Valid choices are: {choices}".format(
+        choices=', '.join(self.session_ids)
+      )
+
 
 if __name__ == '__main__':
-  sessions = TmuxStatus().sessions
-  SessionSelection(sessions)
+  try:
+    TmuxHelper().run()
+  except (EOFError, KeyboardInterrupt, SystemExit):
+    pass
